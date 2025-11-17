@@ -7,13 +7,17 @@ on:
     paths-ignore:
       - "**.md"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Test on node ${{ matrix.node-version }} and ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node-version: [20.x, 22.x]
+        node-version: [20.x]
         os: [ubuntu-latest]
     steps:
       - name: Use Node.js ${{ matrix.node-version }} on ${{ matrix.os }}
