@@ -11,8 +11,9 @@
     "url": "https://github.com/JLaferri"
   },
   "files": [
+    "node",
     "dist",
-    "node"
+    "!dist/**/*.map"
   ],
   "main": "./dist/browser/index.cjs",
   "module": "./dist/browser/index.esm.js",
