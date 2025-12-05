@@ -25,23 +25,15 @@ import type {
 import { GameEndMethod, GameMode } from "./types";
 import { getWinners } from "./utils/getWinners";
 import { extractDistanceInfoFromFrame } from "./utils/homeRunDistance";
+import type { SlpInputRef } from "./utils/slpInputRef";
 import { SlpParser, SlpParserEvent } from "./utils/slpParser";
-import type { SlpFileType, SlpReadInput } from "./utils/slpReader";
-import {
-  closeSlpFile,
-  extractFinalPostFrameUpdates,
-  getGameEnd,
-  getMetadata,
-  iterateEvents,
-  openSlpFile,
-  SlpInputSource,
-} from "./utils/slpReader";
+import type { SlpFileType } from "./utils/slpReader";
+import { extractFinalPostFrameUpdates, getGameEnd, getMetadata, iterateEvents, openSlpFile } from "./utils/slpReader";
 
 /**
  * Slippi Game class that wraps a file
  */
-export class SlippiGame {
-  private input: SlpReadInput;
+export abstract class SlippiGameBase {
   private metadata: MetadataType | null = null;
   private finalStats: StatsType | null = null;
   private parser: SlpParser;
@@ -54,26 +46,7 @@ export class SlippiGame {
   private targetBreakComputer: TargetBreakComputer = new TargetBreakComputer();
   protected statsComputer: Stats;
 
-  public constructor(input: string | Buffer | ArrayBuffer, opts?: StatOptions) {
-    if (typeof input === "string") {
-      this.input = {
-        source: SlpInputSource.FILE,
-        filePath: input,
-      };
-    } else if (input instanceof Buffer) {
-      this.input = {
-        source: SlpInputSource.BUFFER,
-        buffer: input,
-      };
-    } else if (input instanceof ArrayBuffer) {
-      this.input = {
-        source: SlpInputSource.BUFFER,
-        buffer: Buffer.from(input),
-      };
-    } else {
-      throw new Error("Cannot create SlippiGame with input of that type");
-    }
-
+  public constructor(private readonly input: SlpInputRef, opts?: StatOptions) {
     // Set up stats calculation
     this.statsComputer = new Stats(opts);
     this.statsComputer.register(
@@ -100,6 +73,7 @@ export class SlippiGame {
     if (this.parser.getGameEnd() !== null) {
       return;
     }
+    this.input.open();
     const slpfile = file ?? openSlpFile(this.input);
     // Generate settings from iterating through file
     this.readPosition = iterateEvents(
@@ -116,7 +90,7 @@ export class SlippiGame {
       this.readPosition,
     );
     if (!file) {
-      closeSlpFile(slpfile);
+      this.input.close();
     }
   }
 
@@ -143,9 +117,10 @@ export class SlippiGame {
   public getGameEnd(options: { skipProcessing?: boolean } = {}): GameEndType | null {
     if (options?.skipProcessing) {
       // Read game end block directly
+      this.input.open();
       const slpfile = openSlpFile(this.input);
       const gameEnd = getGameEnd(slpfile);
-      closeSlpFile(slpfile);
+      this.input.close();
       return gameEnd;
     }
 
@@ -256,22 +231,18 @@ export class SlippiGame {
     if (this.metadata) {
       return this.metadata;
     }
+    this.input.open();
     const slpfile = openSlpFile(this.input);
     this.metadata = getMetadata(slpfile);
-    closeSlpFile(slpfile);
+    this.input.close();
     return this.metadata;
   }
 
-  public getFilePath(): string | null {
-    if (this.input.source !== SlpInputSource.FILE) {
-      return null;
-    }
-
-    return this.input.filePath ?? null;
-  }
+  public abstract getFilePath(): string | null;
 
   public getWinners(): PlacementType[] {
     // Read game end block directly
+    this.input.open();
     const slpfile = openSlpFile(this.input);
     const gameEnd = getGameEnd(slpfile);
     this._process(() => this.parser.getSettings() !== null, slpfile);
@@ -279,7 +250,7 @@ export class SlippiGame {
     if (!gameEnd || !settings) {
       // Technically using the final post frame updates, it should be possible to compute winners for
       // replays without a gameEnd message. But I'll leave this here anyway
-      closeSlpFile(slpfile);
+      this.input.close();
       return [];
     }
 
@@ -289,7 +260,7 @@ export class SlippiGame {
       finalPostFrameUpdates = extractFinalPostFrameUpdates(slpfile);
     }
 
-    closeSlpFile(slpfile);
+    this.input.close();
     return getWinners(gameEnd, settings, finalPostFrameUpdates);
   }
 }

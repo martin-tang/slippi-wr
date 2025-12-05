@@ -8,14 +8,14 @@ import {
   Frames,
   GameMode,
   MAX_ROLLBACK_FRAMES,
-  SlippiGame,
   SlpCommandEventPayload,
   SlpParser,
   SlpParserEvent,
   SlpStream,
   SlpStreamEvent,
   SlpStreamMode,
-} from "../src";
+  SlippiGame,
+} from "../src/node/index";
 
 describe("when reading last finalised frame from SlpStream", () => {
   it("should never decrease", async () => {
@@ -135,7 +135,24 @@ describe("when reading finalised frames from SlpParser", () => {
   });
 });
 
-const pipeFileContents = async (filename: string, destination: Writable, options?: any): Promise<void> => {
+/**
+ * Helper to make an SlpStream pipeable from Node.js streams
+ */
+const makeStreamPipeable = (processor: SlpStream): Writable => {
+  return new Writable({
+    write(chunk: Buffer, encoding: string, callback: (error?: Error | null) => void) {
+      try {
+        processor.process(new Uint8Array(chunk));
+        callback();
+      } catch (err) {
+        callback(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+  });
+};
+
+const pipeFileContents = async (filename: string, processor: SlpStream, options?: any): Promise<void> => {
+  const destination = makeStreamPipeable(processor);
   return new Promise((resolve): void => {
     const readStream = fs.createReadStream(filename);
     readStream.on("open", () => {

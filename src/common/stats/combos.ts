@@ -1,67 +1,67 @@
-import { EventEmitter } from "events";
-import filter from "lodash/filter";
-import get from "lodash/get";
-import groupBy from "lodash/groupBy";
 import last from "lodash/last";
-import orderBy from "lodash/orderBy";
 
 import type { FrameEntryType, FramesType, GameStartType, PostFrameUpdateType } from "../types";
-import type { ConversionType, MoveLandedType, PlayerIndexedType } from "./common";
+import { TypedEventEmitter } from "../utils/typedEventEmitter";
+import type { ComboType, MoveLandedType, PlayerIndexedType } from "./common";
 import {
   calcDamageTaken,
   didLoseStock,
   getSinglesPlayerPermutationsFromSettings,
   isCommandGrabbed,
   isDamaged,
+  isDead,
+  isDown,
   isGrabbed,
-  isInControl,
+  isTeching,
   Timers,
 } from "./common";
 import type { StatComputer } from "./stats";
 
-type PlayerConversionState = {
-  conversion: ConversionType | null;
+export enum ComboEvent {
+  COMBO_START = "COMBO_START",
+  COMBO_EXTEND = "COMBO_EXTEND",
+  COMBO_END = "COMBO_END",
+}
+
+type ComboEventData = {
+  combo: ComboType | undefined;
+  settings: GameStartType | null;
+};
+
+type ComboEventMap = {
+  [ComboEvent.COMBO_START]: ComboEventData;
+  [ComboEvent.COMBO_EXTEND]: ComboEventData;
+  [ComboEvent.COMBO_END]: ComboEventData;
+};
+
+type ComboState = {
+  combo: ComboType | null;
   move: MoveLandedType | null;
   resetCounter: number;
   lastHitAnimation: number | null;
+  event: ComboEvent | null;
 };
 
-type MetadataType = {
-  lastEndFrameByOppIdx: {
-    [oppIdx: number]: number;
-  };
-};
-
-export class ConversionComputer extends EventEmitter implements StatComputer<ConversionType[]> {
+export class ComboComputer extends TypedEventEmitter<ComboEventMap> implements StatComputer<ComboType[]> {
   private playerPermutations = new Array<PlayerIndexedType>();
-  private conversions = new Array<ConversionType>();
-  private state = new Map<PlayerIndexedType, PlayerConversionState>();
-  private metadata: MetadataType;
+  private state = new Map<PlayerIndexedType, ComboState>();
+  private combos = new Array<ComboType>();
   private settings: GameStartType | null = null;
-
-  public constructor() {
-    super();
-    this.metadata = {
-      lastEndFrameByOppIdx: {},
-    };
-  }
 
   public setup(settings: GameStartType): void {
     // Reset the state
-    this.playerPermutations = getSinglesPlayerPermutationsFromSettings(settings);
-    this.conversions = [];
-    this.state = new Map();
-    this.metadata = {
-      lastEndFrameByOppIdx: {},
-    };
     this.settings = settings;
+    this.state = new Map();
+    this.combos = [];
+    this.playerPermutations = getSinglesPlayerPermutationsFromSettings(settings);
 
     this.playerPermutations.forEach((indices) => {
-      const playerState: PlayerConversionState = {
-        conversion: null,
+      const playerState: ComboState = {
+        combo: null,
         move: null,
         resetCounter: 0,
         lastHitAnimation: null,
+        event: null,
       };
       this.state.set(indices, playerState);
     });
@@ -71,65 +71,34 @@ export class ConversionComputer extends EventEmitter implements StatComputer<Con
     this.playerPermutations.forEach((indices) => {
       const state = this.state.get(indices);
       if (state) {
-        const terminated = handleConversionCompute(allFrames, state, indices, frame, this.conversions);
-        if (terminated) {
-          this.emit("CONVERSION", {
-            combo: last(this.conversions),
+        handleComboCompute(allFrames, state, indices, frame, this.combos);
+
+        // Emit an event for the new combo
+        if (state.event !== null) {
+          this.emit(state.event, {
+            combo: last(this.combos),
             settings: this.settings,
           });
+          state.event = null;
         }
       }
     });
   }
 
-  public fetch(): ConversionType[] {
-    this._populateConversionTypes();
-    return this.conversions;
-  }
-
-  private _populateConversionTypes(): void {
-    // Post-processing step: set the openingTypes
-    const conversionsToHandle = filter(this.conversions, (conversion) => {
-      return conversion.openingType === "unknown";
-    });
-
-    // Group new conversions by startTime and sort
-    const groupedConversions = groupBy(conversionsToHandle, "startFrame");
-    const sortedConversions = orderBy(groupedConversions, (conversions) => get(conversions, [0, "startFrame"]));
-
-    // Set the opening types on the conversions we need to handle
-    sortedConversions.forEach((conversions) => {
-      const isTrade = conversions.length >= 2;
-      conversions.forEach((conversion) => {
-        // Set end frame for this conversion
-        this.metadata.lastEndFrameByOppIdx[conversion.playerIndex] = conversion.endFrame!;
-
-        if (isTrade) {
-          // If trade, just short-circuit
-          conversion.openingType = "trade";
-          return;
-        }
-
-        // If not trade, check the opponent endFrame
-        const lastMove = last(conversion.moves);
-        const oppEndFrame =
-          this.metadata.lastEndFrameByOppIdx[lastMove ? lastMove.playerIndex : conversion.playerIndex];
-        const isCounterAttack = oppEndFrame && oppEndFrame > conversion.startFrame;
-        conversion.openingType = isCounterAttack ? "counter-attack" : "neutral-win";
-      });
-    });
+  public fetch(): ComboType[] {
+    return this.combos;
   }
 }
 
-function handleConversionCompute(
+function handleComboCompute(
   frames: FramesType,
-  state: PlayerConversionState,
+  state: ComboState,
   indices: PlayerIndexedType,
   frame: FrameEntryType,
-  conversions: ConversionType[],
-): boolean {
+  combos: ComboType[],
+): void {
   const currentFrameNumber = frame.frame;
-  const playerFrame: PostFrameUpdateType = frame.players[indices.playerIndex]!.post;
+  const playerFrame = frame.players[indices.playerIndex]!.post;
   const opponentFrame = frame.players[indices.opponentIndex]!.post;
 
   const prevFrameNumber = currentFrameNumber - 1;
@@ -162,12 +131,12 @@ function handleConversionCompute(
   }
 
   // If opponent took damage and was put in some kind of stun this frame, either
-  // start a conversion or
+  // start a combo or count the moves for the existing combo
   if (opntIsDamaged || opntIsGrabbed || opntIsCommandGrabbed) {
-    if (!state.conversion) {
-      state.conversion = {
+    let comboStarted = false;
+    if (!state.combo) {
+      state.combo = {
         playerIndex: indices.opponentIndex,
-        lastHitBy: indices.playerIndex,
         startFrame: currentFrameNumber,
         endFrame: null,
         startPercent: prevOpponentFrame ? prevOpponentFrame.percent ?? 0 : 0,
@@ -175,10 +144,13 @@ function handleConversionCompute(
         endPercent: null,
         moves: [],
         didKill: false,
-        openingType: "unknown", // Will be updated later
+        lastHitBy: indices.playerIndex,
       };
 
-      conversions.push(state.conversion);
+      combos.push(state.combo);
+
+      // Track whether this is a new combo or not
+      comboStarted = true;
     }
 
     if (opntDamageTaken) {
@@ -193,7 +165,12 @@ function handleConversionCompute(
           damage: 0,
         };
 
-        state.conversion.moves.push(state.move);
+        state.combo.moves.push(state.move);
+
+        // Make sure we don't overwrite the START event
+        if (!comboStarted) {
+          state.event = ComboEvent.COMBO_EXTEND;
+        }
       }
 
       if (state.move) {
@@ -205,33 +182,32 @@ function handleConversionCompute(
       // frame should always be the move that actually connected... I hope
       state.lastHitAnimation = prevPlayerFrame ? prevPlayerFrame.actionStateId : null;
     }
+
+    if (comboStarted) {
+      state.event = ComboEvent.COMBO_START;
+    }
   }
 
-  if (!state.conversion) {
-    // The rest of the function handles conversion termination logic, so if we don't
-    // have a conversion started, there is no need to continue
-    return false;
+  if (!state.combo) {
+    // The rest of the function handles combo termination logic, so if we don't
+    // have a combo started, there is no need to continue
+    return;
   }
 
-  const opntInControl = isInControl(oppActionStateId);
+  const opntIsTeching = isTeching(oppActionStateId);
+  const opntIsDowned = isDown(oppActionStateId);
   const opntDidLoseStock = prevOpponentFrame && didLoseStock(opponentFrame, prevOpponentFrame);
+  const opntIsDying = isDead(oppActionStateId);
 
   // Update percent if opponent didn't lose stock
   if (!opntDidLoseStock) {
-    state.conversion.currentPercent = opponentFrame.percent ?? 0;
+    state.combo.currentPercent = opponentFrame.percent ?? 0;
   }
 
-  if (opntIsDamaged || opntIsGrabbed || opntIsCommandGrabbed) {
+  if (opntIsDamaged || opntIsGrabbed || opntIsCommandGrabbed || opntIsTeching || opntIsDowned || opntIsDying) {
     // If opponent got grabbed or damaged, reset the reset counter
     state.resetCounter = 0;
-  }
-
-  const shouldStartResetCounter = state.resetCounter === 0 && opntInControl;
-  const shouldContinueResetCounter = state.resetCounter > 0;
-  if (shouldStartResetCounter || shouldContinueResetCounter) {
-    // This will increment the reset timer under the following conditions:
-    // 1) if we were punishing opponent but they have now entered an actionable state
-    // 2) if counter has already started counting meaning opponent has entered actionable state
+  } else {
     state.resetCounter += 1;
   }
 
@@ -239,23 +215,22 @@ function handleConversionCompute(
 
   // Termination condition 1 - player kills opponent
   if (opntDidLoseStock) {
-    state.conversion.didKill = true;
+    state.combo.didKill = true;
     shouldTerminate = true;
   }
 
-  // Termination condition 2 - conversion resets on time
-  if (state.resetCounter > Timers.PUNISH_RESET_FRAMES) {
+  // Termination condition 2 - combo resets on time
+  if (state.resetCounter > Timers.COMBO_STRING_RESET_FRAMES) {
     shouldTerminate = true;
   }
 
-  // If conversion should terminate, mark the end states and add it to list
+  // If combo should terminate, mark the end states and add it to list
   if (shouldTerminate) {
-    state.conversion.endFrame = playerFrame.frame;
-    state.conversion.endPercent = prevOpponentFrame ? prevOpponentFrame.percent ?? 0 : 0;
+    state.combo.endFrame = playerFrame.frame;
+    state.combo.endPercent = prevOpponentFrame ? prevOpponentFrame.percent ?? 0 : 0;
+    state.event = ComboEvent.COMBO_END;
 
-    state.conversion = null;
+    state.combo = null;
     state.move = null;
   }
-
-  return shouldTerminate;
 }
