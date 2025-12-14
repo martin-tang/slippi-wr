@@ -59,9 +59,8 @@ const game = new SlippiGame(buffer); // ✅
 
 **Additional Node.js-only exports:**
 
-- Console connection utilities for real-time game capture
+- Console and Dolphin connection utilities for real-time game capture
 - `SlpFileWriter` for creating `.slp` files
-- `SlpStream` for streaming game data
 
 **Rule of thumb:** Use `@slippi/slippi-js/node` for Node.js applications and scripts. Use the default `@slippi/slippi-js` for browser/web applications.
 
