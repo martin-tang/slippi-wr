@@ -48,7 +48,7 @@ const createOutput = (dir, format) => ({
   format,
   entryFileNames: `[name].${format === "esm" ? "esm.js" : "cjs"}`,
   chunkFileNames: `[name].${format === "esm" ? "esm.js" : "cjs"}`,
-  sourcemap: true,
+  sourcemap: "hidden",
   exports: "named",
 });
 
