@@ -40,7 +40,7 @@ const game = new SlippiGame(arrayBuffer);
 const game = new SlippiGame("path/to/file.slp"); // ❌ Error!
 ```
 
-> **💡 See the [browser-stream example](./examples/browser-stream/)** for a complete web application demonstrating real-time replay file processing in the browser.
+> **💡 See the [browser-stream example](./examples/browser-stream/)** for a demo of real-time replay file stream processing in the browser.
 
 ### Node.js Export: `@slippi/slippi-js/node`
 
