@@ -1,0 +1,16 @@
+{
+  "name": "slippi-js-browser-stream-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "serve": "serve . -l 8080"
+  },
+  "dependencies": {
+    "@slippi/slippi-js": "file:../.."
+  },
+  "devDependencies": {
+    "esbuild": "^0.19.0",
+    "serve": "^14.2.0"
+  }
+}
