@@ -44,6 +44,7 @@ jobs:
       - name: Run tests
         run: |
           npm run test:ci
+          npm run typecheck
       - name: Coveralls
         uses: coverallsapp/github-action@1.1.3
         continue-on-error: true
