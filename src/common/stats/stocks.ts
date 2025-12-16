@@ -4,13 +4,13 @@ import { didLoseStock, getSinglesPlayerPermutationsFromSettings, isDead } from "
 import type { StatComputer } from "./stats";
 
 type StockState = {
-  stock?: StockType | null;
+  stock: StockType | undefined;
 };
 
 export class StockComputer implements StatComputer<StockType[]> {
   private state = new Map<PlayerIndexedType, StockState>();
-  private playerPermutations = new Array<PlayerIndexedType>();
-  private stocks = new Array<StockType>();
+  private playerPermutations: PlayerIndexedType[] = [];
+  private stocks: StockType[] = [];
 
   public setup(settings: GameStartType): void {
     // Reset state
@@ -20,7 +20,7 @@ export class StockComputer implements StatComputer<StockType[]> {
 
     this.playerPermutations.forEach((indices) => {
       const playerState: StockState = {
-        stock: null,
+        stock: undefined,
       };
       this.state.set(indices, playerState);
     });
@@ -50,7 +50,9 @@ function handleStockCompute(
   const playerFrame = frame.players[indices.playerIndex]!.post;
   const currentFrameNumber = playerFrame.frame!;
   const prevFrameNumber = currentFrameNumber - 1;
-  const prevPlayerFrame = frames[prevFrameNumber] ? frames[prevFrameNumber]!.players[indices.playerIndex]!.post : null;
+  const prevPlayerFrame = frames[prevFrameNumber]
+    ? frames[prevFrameNumber]!.players[indices.playerIndex]!.post
+    : undefined;
 
   // If there is currently no active stock, wait until the player is no longer spawning.
   // Once the player is no longer spawning, start the stock
@@ -63,12 +65,12 @@ function handleStockCompute(
     state.stock = {
       playerIndex: indices.playerIndex,
       startFrame: currentFrameNumber,
-      endFrame: null,
+      endFrame: undefined,
       startPercent: 0,
-      endPercent: null,
+      endPercent: undefined,
       currentPercent: 0,
       count: playerFrame.stocksRemaining!,
-      deathAnimation: null,
+      deathAnimation: undefined,
     };
 
     stocks.push(state.stock);
@@ -76,7 +78,7 @@ function handleStockCompute(
     state.stock.endFrame = playerFrame.frame;
     state.stock.endPercent = prevPlayerFrame.percent ?? 0;
     state.stock.deathAnimation = playerFrame.actionStateId;
-    state.stock = null;
+    state.stock = undefined;
   } else {
     state.stock.currentPercent = playerFrame.percent ?? 0;
   }

@@ -28,7 +28,7 @@ export type PlayerInput = {
 
 export class InputComputer implements StatComputer<PlayerInput[]> {
   private state = new Map<PlayerIndexedType, PlayerInput>();
-  private playerPermutations = new Array<PlayerIndexedType>();
+  private playerPermutations: PlayerIndexedType[] = [];
 
   public setup(settings: GameStartType): void {
     // Reset the state
@@ -72,7 +72,9 @@ function handleInputCompute(
   const playerFrame = frame.players[indices.playerIndex]!.pre;
   const currentFrameNumber = playerFrame.frame!;
   const prevFrameNumber = currentFrameNumber - 1;
-  const prevPlayerFrame = frames[prevFrameNumber] ? frames[prevFrameNumber]!.players[indices.playerIndex]!.pre : null;
+  const prevPlayerFrame = frames[prevFrameNumber]
+    ? frames[prevFrameNumber]!.players[indices.playerIndex]!.pre
+    : undefined;
 
   if (currentFrameNumber < Frames.FIRST_PLAYABLE || !prevPlayerFrame) {
     // Don't count inputs until the game actually starts

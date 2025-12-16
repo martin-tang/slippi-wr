@@ -45,7 +45,7 @@ export enum SlpFileWriterEvent {
  * @extends {Writable}
  */
 export class SlpFileWriter extends Writable {
-  private currentFile: SlpFile | null = null;
+  private currentFile?: SlpFile;
   private options: SlpFileWriterOptions;
   private processor: SlpStream;
 
@@ -108,23 +108,23 @@ export class SlpFileWriter extends Writable {
   }
 
   /**
-   * Return the name of the SLP file currently being written or null if
+   * Return the name of the SLP file currently being written or undefined if
    * no file is being written to currently.
    *
-   * @returns {(string | null)}
+   * @returns {(string | undefined)}
    * @memberof SlpFileWriter
    */
-  public getCurrentFilename(): string | null {
-    if (this.currentFile !== null) {
+  public getCurrentFilename(): string | undefined {
+    if (this.currentFile != null) {
       return path.resolve(this.currentFile.path());
     }
-    return null;
+    return undefined;
   }
 
   /**
    * Ends the current file being written to.
    *
-   * @returns {(string | null)}
+   * @returns {(string | undefined)}
    * @memberof SlpFileWriter
    */
   public endCurrentFile(): void {
@@ -170,7 +170,7 @@ export class SlpFileWriter extends Writable {
       this.currentFile.end();
 
       // Clear current file
-      this.currentFile = null;
+      this.currentFile = undefined;
     }
   }
 }

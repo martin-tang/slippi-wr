@@ -14,9 +14,9 @@ export type CommunicationMessage = {
     pos: Uint8Array;
     nextPos: Uint8Array;
     data: Uint8Array;
-    nick: string | null;
+    nick: string | undefined;
     forcePos: boolean;
-    nintendontVersion: string | null;
+    nintendontVersion: string | undefined;
   };
 };
 
@@ -24,7 +24,7 @@ export type CommunicationMessage = {
 // desktop app
 export class ConsoleCommunication {
   private receiveBuf = Buffer.from([]);
-  private messages = new Array<CommunicationMessage>();
+  private messages: CommunicationMessage[] = [];
 
   public receive(data: Buffer): void {
     this.receiveBuf = Buffer.concat([this.receiveBuf, data]);

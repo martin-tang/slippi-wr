@@ -19,10 +19,10 @@ const defaultOptions: StatOptions = {
 
 export class Stats {
   private options: StatOptions;
-  private lastProcessedFrame: number | null = null;
+  private lastProcessedFrame?: number;
   private frames: FramesType = {};
   private players: number[] = [];
-  private allComputers = new Array<StatComputer<unknown>>();
+  private allComputers: StatComputer<unknown>[] = [];
 
   public constructor(options?: StatOptions) {
     this.options = Object.assign({}, defaultOptions, options);
@@ -49,7 +49,7 @@ export class Stats {
       return;
     }
 
-    let i = this.lastProcessedFrame !== null ? this.lastProcessedFrame + 1 : Frames.FIRST;
+    let i = this.lastProcessedFrame != null ? this.lastProcessedFrame + 1 : Frames.FIRST;
     while (this.frames[i]) {
       const frame = this.frames[i];
       // Don't attempt to compute stats on frames that have not been fully received
