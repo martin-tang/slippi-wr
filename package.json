@@ -62,6 +62,7 @@
     "prepublishOnly": "npm run lint && npm run test && npm run build"
   },
   "keywords": [
+    "slippi-js",
     "slp-parser-js",
     "slp",
     "slippi",
