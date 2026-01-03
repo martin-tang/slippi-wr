@@ -1,6 +1,6 @@
-import { SlippiGame } from "../src/node/index";
 import { PostFrameUpdateType } from "../src/common/index";
 import { didLoseStock } from "../src/common/stats/common";
+import { SlippiGame } from "../src/node/index";
 
 const expectedThrow = {
   up: 1,
@@ -257,6 +257,42 @@ describe("when calculating stats", () => {
     const stats = game.getStats();
     const p1Fsmashes = stats?.actionCounts[0]!.attackCount.fsmash;
     expect(p1Fsmashes).toBe(4);
+  });
+
+  it("should count wavedashes correctly", () => {
+    const game1 = new SlippiGame("slp/wavedash-1.slp");
+    const game2 = new SlippiGame("slp/wavedash-2.slp");
+    const game3 = new SlippiGame("slp/wavedash-3.slp");
+    const stats1 = game1.getStats();
+    const stats2 = game2.getStats();
+    const stats3 = game3.getStats();
+    const g1p2Wavedashes = stats1?.actionCounts[1]!.wavedashCount;
+    const g1p2Wavelands = stats1?.actionCounts[1]!.wavelandCount;
+    expect(g1p2Wavedashes).toBe(5);
+    expect(g1p2Wavelands).toBe(0);
+    const g2p1Wavedashes = stats2?.actionCounts[0]!.wavedashCount;
+    const g2p1Wavelands = stats2?.actionCounts[0]!.wavelandCount;
+    expect(g2p1Wavedashes).toBe(5);
+    expect(g2p1Wavelands).toBe(0);
+    const g3p2Wavedashes = stats3?.actionCounts[1]!.wavedashCount;
+    const g3p2Wavelands = stats3?.actionCounts[1]!.wavelandCount;
+    expect(g3p2Wavedashes).toBe(5);
+    expect(g3p2Wavelands).toBe(0);
+  });
+
+  it("should cound wavelands correctly", () => {
+    const game1 = new SlippiGame("slp/waveland-1.slp");
+    const game2 = new SlippiGame("slp/waveland-2.slp");
+    const stats1 = game1.getStats();
+    const stats2 = game2.getStats();
+    const g1p2Wavelands = stats1?.actionCounts[1]!.wavelandCount;
+    const g1p2Wavedashes = stats1?.actionCounts[1]!.wavedashCount;
+    const g2p1Wavelands = stats2?.actionCounts[0]!.wavelandCount;
+    const g2p1Wavedashes = stats2?.actionCounts[0]!.wavedashCount;
+    expect(g1p2Wavelands).toBe(5);
+    expect(g1p2Wavedashes).toBe(0);
+    expect(g2p1Wavelands).toBe(5);
+    expect(g2p1Wavedashes).toBe(0);
   });
 });
 
