@@ -144,7 +144,18 @@ class WinrateApp:
             def progress(cur, total):
                 self.root.after(0, lambda: self.status_var.set(f"Status: Importing... {cur}/{total}"))
 
-            records = build_winrate_dict(self.replay_dir, code, progress_callback=progress)
+            def save(records):
+                # Update records on the main thread and persist to disk
+                def do_save():
+                    self.records = records
+                    self._persist()
+                self.root.after(0, do_save)
+
+            records = build_winrate_dict(
+                self.replay_dir, code,
+                progress_callback=progress,
+                save_callback=save,
+            )
             self.root.after(0, lambda: self._on_import_done(records))
 
         threading.Thread(target=run, daemon=True).start()

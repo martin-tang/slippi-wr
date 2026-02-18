@@ -61,7 +61,7 @@ class SlpWatcher:
         self._running = True
         handler = _SlpHandler(self)
         self._observer = Observer()
-        self._observer.schedule(handler, self.replay_dir, recursive=False)
+        self._observer.schedule(handler, self.replay_dir, recursive=True)
         self._observer.daemon = True
         self._observer.start()
 

@@ -250,6 +250,7 @@ def build_winrate_dict(
     replay_dir: str,
     my_code: str,
     progress_callback=None,
+    save_callback=None,
 ) -> dict[str, list[int]]:
     """Scan *replay_dir* for ``.slp`` files and build a win/loss dictionary.
 
@@ -260,18 +261,22 @@ def build_winrate_dict(
 
     *progress_callback*, if provided, is called with ``(current, total)``
     after each file.
+
+    *save_callback*, if provided, is called with the current *records* dict
+    every 100 files so that progress is persisted incrementally.
     """
     my_code_lower = my_code.strip().lower()
     records: dict[str, list[int]] = {}
 
-    slp_files = [
-        f for f in os.listdir(replay_dir)
-        if f.lower().endswith(".slp")
-    ]
+    # Recursively find all .slp files in the replay directory and subdirectories
+    slp_files: list[str] = []
+    for dirpath, _dirnames, filenames in os.walk(replay_dir):
+        for fname in filenames:
+            if fname.lower().endswith(".slp"):
+                slp_files.append(os.path.join(dirpath, fname))
     total = len(slp_files)
 
-    for idx, fname in enumerate(slp_files):
-        fpath = os.path.join(replay_dir, fname)
+    for idx, fpath in enumerate(slp_files):
         result = parse_completed_game(fpath)
         if progress_callback:
             progress_callback(idx + 1, total)
@@ -299,5 +304,13 @@ def build_winrate_dict(
         elif winner == opp_port:
             records[opp_name][1] += 1
         # If winner is None (indeterminate), we skip counting it
+
+        # Persist progress every 100 files so nothing is lost on crash/close
+        if save_callback and (idx + 1) % 100 == 0:
+            save_callback(records)
+
+    # Final save to capture the tail end
+    if save_callback:
+        save_callback(records)
 
     return records
