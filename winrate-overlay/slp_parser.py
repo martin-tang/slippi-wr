@@ -1,5 +1,6 @@
 """
-Parses .slp replay files to extract player identities and game outcomes.
+Parses .slp replay files to extract player identities, game mode
+(ranked / unranked), and game outcomes.
 
 Uses py-slippi for completed game analysis, and includes a lightweight binary
 parser for reading player info from live (in-progress) replay files where the
@@ -32,16 +33,13 @@ _CONNECT_CODE_START = 0x221
 _CONNECT_CODE_LEN = 0x0A
 _PLAYER_TYPE_OFFSET = 0x66
 _PLAYER_BLOCK_STRIDE = 0x24
+_SESSION_ID_START = 0x2BE
+_SESSION_ID_LEN = 51
 
 
-def read_live_player_info(filepath: str) -> Optional[list[dict]]:
-    """Read display names and connect codes directly from the game-start
-    command of a .slp file that may still be in the process of being written.
-
-    Returns a list of dicts with keys ``port``, ``display_name``,
-    ``connect_code``, and ``character_id`` for each active player,
-    or *None* if the file can't be read yet.
-    """
+def _read_game_start_buffer(filepath: str) -> Optional[bytes]:
+    """Read the raw GAME_START command buffer from a .slp file.
+    Works on both complete and partial (live) files."""
     try:
         with open(filepath, "rb") as f:
             data = f.read()
@@ -51,7 +49,6 @@ def read_live_player_info(filepath: str) -> Optional[list[dict]]:
     if len(data) < 16:
         return None
 
-    # Determine raw-data start position
     if data[0] == 0x36:
         raw_pos = 0
     elif data[0:1] == b"{":
@@ -59,10 +56,7 @@ def read_live_player_info(filepath: str) -> Optional[list[dict]]:
     else:
         return None
 
-    # Read message-sizes command (0x35)
-    if raw_pos >= len(data):
-        return None
-    if data[raw_pos] != 0x35:
+    if raw_pos >= len(data) or data[raw_pos] != 0x35:
         return None
 
     payload_len = data[raw_pos + 1]
@@ -77,7 +71,6 @@ def read_live_player_info(filepath: str) -> Optional[list[dict]]:
     if game_start_size is None:
         return None
 
-    # The game-start command starts right after the message-sizes block
     gs_offset = raw_pos + 1 + payload_len
     gs_end = gs_offset + 1 + game_start_size
     if gs_end > len(data):
@@ -86,9 +79,43 @@ def read_live_player_info(filepath: str) -> Optional[list[dict]]:
     if data[gs_offset] != 0x36:
         return None
 
-    # The full command buffer includes the 0x36 byte at position 0,
-    # matching slippi-js offset conventions.
-    buf = data[gs_offset: gs_end]
+    return data[gs_offset: gs_end]
+
+
+def read_game_mode(filepath: str) -> str:
+    """Return ``"ranked"``, ``"unranked"``, or ``"other"`` based on the
+    session ID embedded in the game-start command."""
+    buf = _read_game_start_buffer(filepath)
+    if buf is None:
+        return "other"
+
+    sid_end = _SESSION_ID_START + _SESSION_ID_LEN
+    if sid_end > len(buf):
+        return "other"
+
+    try:
+        session_id = buf[_SESSION_ID_START:sid_end].split(b"\x00")[0].decode("utf-8")
+    except UnicodeDecodeError:
+        return "other"
+
+    if session_id.startswith("mode.ranked"):
+        return "ranked"
+    if session_id.startswith("mode.unranked"):
+        return "unranked"
+    return "other"
+
+
+def read_live_player_info(filepath: str) -> Optional[list[dict]]:
+    """Read display names and connect codes directly from the game-start
+    command of a .slp file that may still be in the process of being written.
+
+    Returns a list of dicts with keys ``port``, ``display_name``,
+    ``connect_code``, and ``character_id`` for each active player,
+    or *None* if the file can't be read yet.
+    """
+    buf = _read_game_start_buffer(filepath)
+    if buf is None:
+        return None
 
     players = []
     for port in range(4):
@@ -208,6 +235,7 @@ def parse_completed_game(filepath: str) -> Optional[dict]:
             "players": { port: "DisplayName (CODE#123)", ... },
             "winner_port": int or None,
             "active_ports": [int, ...],
+            "mode": "ranked" | "unranked" | "other",
         }
 
     Returns None if the file can't be parsed or isn't a 1v1.
@@ -238,40 +266,57 @@ def parse_completed_game(filepath: str) -> Optional[dict]:
         return None
 
     winner_port = _determine_winner_port(game)
+    mode = read_game_mode(filepath)
 
     return {
         "players": players,
         "winner_port": winner_port,
         "active_ports": active_ports,
+        "mode": mode,
     }
+
+
+def _collect_slp_files(replay_dir: str) -> list[str]:
+    """Recursively find all .slp files under *replay_dir*."""
+    slp_files = []
+    for dirpath, _dirnames, filenames in os.walk(replay_dir):
+        for fname in filenames:
+            if fname.lower().endswith(".slp"):
+                slp_files.append(os.path.join(dirpath, fname))
+    return slp_files
 
 
 def build_winrate_dict(
     replay_dir: str,
     my_code: str,
     progress_callback=None,
-) -> dict[str, list[int]]:
-    """Scan *replay_dir* for ``.slp`` files and build a win/loss dictionary.
+) -> dict[str, dict[str, list[int]]]:
+    """Scan *replay_dir* (recursively) for ``.slp`` files and build a
+    win/loss dictionary.
 
     *my_code* should be a substring that appears in the user's player-id
     string (e.g. ``"NIKK#513"``).  It is matched case-insensitively.
 
-    Returns ``{ "Opponent (CODE#123)": [wins, losses], ... }``.
+    Returns::
+
+        {
+            "Opponent (CODE#123)": {
+                "ranked":   [wins, losses],
+                "unranked": [wins, losses],
+            },
+            ...
+        }
 
     *progress_callback*, if provided, is called with ``(current, total)``
     after each file.
     """
     my_code_lower = my_code.strip().lower()
-    records: dict[str, list[int]] = {}
+    records: dict[str, dict[str, list[int]]] = {}
 
-    slp_files = [
-        f for f in os.listdir(replay_dir)
-        if f.lower().endswith(".slp")
-    ]
+    slp_files = _collect_slp_files(replay_dir)
     total = len(slp_files)
 
-    for idx, fname in enumerate(slp_files):
-        fpath = os.path.join(replay_dir, fname)
+    for idx, fpath in enumerate(slp_files):
         result = parse_completed_game(fpath)
         if progress_callback:
             progress_callback(idx + 1, total)
@@ -290,14 +335,17 @@ def build_winrate_dict(
             continue
 
         opp_name = result["players"][opp_port]
+        mode = result["mode"]
+        if mode not in ("ranked", "unranked"):
+            continue
+
         if opp_name not in records:
-            records[opp_name] = [0, 0]
+            records[opp_name] = {"ranked": [0, 0], "unranked": [0, 0]}
 
         winner = result["winner_port"]
         if winner == my_port:
-            records[opp_name][0] += 1
+            records[opp_name][mode][0] += 1
         elif winner == opp_port:
-            records[opp_name][1] += 1
-        # If winner is None (indeterminate), we skip counting it
+            records[opp_name][mode][1] += 1
 
     return records

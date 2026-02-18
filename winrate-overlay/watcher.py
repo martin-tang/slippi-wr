@@ -1,7 +1,7 @@
 """
-Monitors a Slippi replay directory for new .slp files being written, detects
-the current opponent mid-game, and updates the win/loss dictionary when
-games complete.
+Monitors a Slippi replay directory (recursively) for new .slp files being
+written, detects the current opponent mid-game, and updates the win/loss
+dictionary when games complete.
 """
 
 import os
@@ -12,22 +12,23 @@ from typing import Optional, Callable
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileModifiedEvent
 
-from slp_parser import read_live_player_info, parse_completed_game
+from slp_parser import read_live_player_info, read_game_mode, parse_completed_game
 
 
 class SlpWatcher:
-    """Watches a replay directory and fires callbacks for live game events.
+    """Watches a replay directory (and all subdirectories) and fires
+    callbacks for live game events.
 
     Parameters
     ----------
     replay_dir : str
-        Path to the Slippi replay directory.
+        Top-level Slippi replay directory (contains monthly sub-folders).
     my_code : str
         The user's connect code (e.g. ``"NIKK#513"``), matched case-insensitively.
-    on_game_start : callable(opponent_name: str)
-        Called when a new live game is detected with the opponent's identity.
-    on_game_end : callable(opponent_name: str, i_won: bool | None)
-        Called when a game finishes.  ``i_won`` is None if indeterminate.
+    on_game_start : callable(opponent_name: str, mode: str)
+        Called when a new live game is detected.
+    on_game_end : callable(opponent_name: str, mode: str, i_won: bool | None)
+        Called when a game finishes.
     on_status : callable(msg: str)
         Called to report status text.
     """
@@ -36,8 +37,8 @@ class SlpWatcher:
         self,
         replay_dir: str,
         my_code: str,
-        on_game_start: Callable[[str], None],
-        on_game_end: Callable[[str, Optional[bool]], None],
+        on_game_start: Callable[[str, str], None],
+        on_game_end: Callable[[str, str, Optional[bool]], None],
         on_status: Callable[[str], None],
     ):
         self.replay_dir = replay_dir
@@ -49,6 +50,7 @@ class SlpWatcher:
         self._observer: Optional[Observer] = None
         self._tracked_file: Optional[str] = None
         self._tracked_opponent: Optional[str] = None
+        self._tracked_mode: str = "other"
         self._last_size: int = 0
         self._stable_count: int = 0
         self._poll_thread: Optional[threading.Thread] = None
@@ -61,7 +63,7 @@ class SlpWatcher:
         self._running = True
         handler = _SlpHandler(self)
         self._observer = Observer()
-        self._observer.schedule(handler, self.replay_dir, recursive=False)
+        self._observer.schedule(handler, self.replay_dir, recursive=True)
         self._observer.daemon = True
         self._observer.start()
 
@@ -90,16 +92,17 @@ class SlpWatcher:
             code = p["connect_code"]
             if code and self.my_code not in code.lower():
                 name = p["display_name"] or "Unknown"
-                cc = code
-                opp_name = f"{name} ({cc})"
+                opp_name = f"{name} ({code})"
                 break
 
         if opp_name and path != self._tracked_file:
+            mode = read_game_mode(path)
             self._tracked_file = path
             self._tracked_opponent = opp_name
+            self._tracked_mode = mode
             self._last_size = 0
             self._stable_count = 0
-            self.on_game_start(opp_name)
+            self.on_game_start(opp_name, mode)
             self.on_status("Game in progress...")
 
     def _poll_loop(self):
@@ -127,8 +130,10 @@ class SlpWatcher:
     def _finalize_game(self):
         filepath = self._tracked_file
         opponent = self._tracked_opponent
+        mode = self._tracked_mode
         self._tracked_file = None
         self._tracked_opponent = None
+        self._tracked_mode = "other"
         self._stable_count = 0
 
         if filepath is None or opponent is None:
@@ -138,16 +143,16 @@ class SlpWatcher:
         i_won = None
         if result is not None:
             my_port = None
-            opp_port = None
             for port, pid in result["players"].items():
                 if self.my_code in pid.lower():
                     my_port = port
-                else:
-                    opp_port = port
+                    break
             if my_port is not None and result["winner_port"] is not None:
                 i_won = result["winner_port"] == my_port
+            if result["mode"] in ("ranked", "unranked"):
+                mode = result["mode"]
 
-        self.on_game_end(opponent, i_won)
+        self.on_game_end(opponent, mode, i_won)
         self.on_status("Watching for new games...")
 
 
@@ -158,7 +163,6 @@ class _SlpHandler(FileSystemEventHandler):
 
     def on_created(self, event):
         if isinstance(event, FileCreatedEvent) and not event.is_directory:
-            # Small delay to let Dolphin start writing
             threading.Timer(0.5, self.watcher._on_new_file, args=[event.src_path]).start()
 
     def on_modified(self, event):

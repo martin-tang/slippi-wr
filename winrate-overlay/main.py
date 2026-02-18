@@ -10,7 +10,6 @@ Requires: py-slippi, watchdog  (see requirements.txt)
 
 import json
 import os
-import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -39,17 +38,21 @@ def _save_state(state: dict):
         pass
 
 
+def _empty_record() -> dict[str, list[int]]:
+    return {"ranked": [0, 0], "unranked": [0, 0]}
+
+
 class WinrateApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Slippi Winrate Overlay")
         self.root.resizable(False, False)
 
-        # Persistent state
         saved = _load_saved_state()
         self.replay_dir: str = saved.get("replay_dir", "")
         self.my_code: str = saved.get("my_code", "")
-        self.records: dict[str, list[int]] = saved.get("records", {})
+        # { "Opp (CODE)": { "ranked": [w, l], "unranked": [w, l] } }
+        self.records: dict[str, dict[str, list[int]]] = saved.get("records", {})
 
         self.watcher: SlpWatcher | None = None
         self.current_opponent: str = ""
@@ -61,7 +64,7 @@ class WinrateApp:
             self._start_watcher()
 
     # ------------------------------------------------------------------
-    # UI construction
+    # UI
     # ------------------------------------------------------------------
 
     def _build_ui(self):
@@ -90,7 +93,7 @@ class WinrateApp:
         self.import_btn = tk.Button(row_dir, text="Import", command=self._import_replays)
         self.import_btn.pack(side="left")
 
-        # --- Row 2: Current player / record ---
+        # --- Row 2: Current player ---
         row_player = tk.Frame(self.root)
         row_player.pack(fill="x", **pad)
 
@@ -98,15 +101,23 @@ class WinrateApp:
         tk.Label(row_player, textvariable=self.player_var, font=("Segoe UI", 11, "bold"),
                  anchor="w").pack(fill="x")
 
-        # --- Row 3: Win/Loss ---
-        row_record = tk.Frame(self.root)
-        row_record.pack(fill="x", **pad)
+        # --- Row 3: Ranked record ---
+        row_ranked = tk.Frame(self.root)
+        row_ranked.pack(fill="x", **pad)
 
-        self.record_var = tk.StringVar(value="")
-        tk.Label(row_record, textvariable=self.record_var, font=("Segoe UI", 13),
+        self.ranked_var = tk.StringVar(value="")
+        tk.Label(row_ranked, textvariable=self.ranked_var, font=("Segoe UI", 12),
                  anchor="w").pack(fill="x")
 
-        # --- Row 4: Status ---
+        # --- Row 4: Unranked record ---
+        row_unranked = tk.Frame(self.root)
+        row_unranked.pack(fill="x", **pad)
+
+        self.unranked_var = tk.StringVar(value="")
+        tk.Label(row_unranked, textvariable=self.unranked_var, font=("Segoe UI", 12),
+                 anchor="w").pack(fill="x")
+
+        # --- Row 5: Status ---
         row_status = tk.Frame(self.root)
         row_status.pack(fill="x", **pad)
 
@@ -149,13 +160,16 @@ class WinrateApp:
 
         threading.Thread(target=run, daemon=True).start()
 
-    def _on_import_done(self, records: dict[str, list[int]]):
+    def _on_import_done(self, records: dict[str, dict[str, list[int]]]):
         self.records = records
         self.import_btn.config(state="normal")
         self.browse_btn.config(state="normal")
 
         total_opponents = len(records)
-        total_games = sum(w + l for w, l in records.values())
+        total_games = sum(
+            r["ranked"][0] + r["ranked"][1] + r["unranked"][0] + r["unranked"][1]
+            for r in records.values()
+        )
         self.status_var.set(f"Status: Imported {total_games} games vs {total_opponents} opponents.")
 
         self._persist()
@@ -179,17 +193,18 @@ class WinrateApp:
         )
         self.watcher.start()
 
-    def _on_game_start(self, opponent_name: str):
+    def _on_game_start(self, opponent_name: str, mode: str):
         self.root.after(0, lambda: self._set_current_opponent(opponent_name))
 
-    def _on_game_end(self, opponent_name: str, i_won: bool | None):
+    def _on_game_end(self, opponent_name: str, mode: str, i_won: bool | None):
         def update():
             if opponent_name not in self.records:
-                self.records[opponent_name] = [0, 0]
-            if i_won is True:
-                self.records[opponent_name][0] += 1
-            elif i_won is False:
-                self.records[opponent_name][1] += 1
+                self.records[opponent_name] = _empty_record()
+            if mode in ("ranked", "unranked"):
+                if i_won is True:
+                    self.records[opponent_name][mode][0] += 1
+                elif i_won is False:
+                    self.records[opponent_name][mode][1] += 1
             self._persist()
             self._update_current_player_display()
         self.root.after(0, update)
@@ -205,15 +220,18 @@ class WinrateApp:
         opp = self.current_opponent
         if not opp:
             self.player_var.set("Current player: —")
-            self.record_var.set("")
+            self.ranked_var.set("")
+            self.unranked_var.set("")
             return
 
         self.player_var.set(f"Current player: {opp}")
-        rec = self.records.get(opp, [0, 0])
-        wins, losses = rec
-        total = wins + losses
-        pct = (wins / total * 100) if total > 0 else 0
-        self.record_var.set(f"Wins: {wins}    Losses: {losses}    ({pct:.0f}% winrate)")
+        rec = self.records.get(opp, _empty_record())
+
+        rw, rl = rec["ranked"]
+        uw, ul = rec["unranked"]
+
+        self.ranked_var.set(f"Ranked:    W: {rw}  L: {rl}")
+        self.unranked_var.set(f"Unranked:  W: {uw}  L: {ul}")
 
     # ------------------------------------------------------------------
     # Persistence
@@ -238,7 +256,6 @@ def main():
     app = WinrateApp(root)
     root.protocol("WM_DELETE_WINDOW", app.on_close)
 
-    # Centre the window on screen
     root.update_idletasks()
     w, h = root.winfo_width(), root.winfo_height()
     x = (root.winfo_screenwidth() // 2) - (w // 2)
