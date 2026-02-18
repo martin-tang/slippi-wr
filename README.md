@@ -1,158 +1,112 @@
-# `slippi-js`
+# Slippi History Advanced
 
-[![npm version](http://img.shields.io/npm/v/@slippi/slippi-js.svg?style=flat)](https://npmjs.org/package/@slippi/slippi-js "View this project on npm")
-[![Build Status](https://github.com/project-slippi/slippi-js/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/project-slippi/slippi-js/actions/workflows/build.yml?query=branch%3Amaster)
-[![Coverage Status](https://coveralls.io/repos/github/project-slippi/slippi-js/badge.svg)](https://coveralls.io/github/project-slippi/slippi-js)
-[![License](https://img.shields.io/npm/l/@slippi/slippi-js)](https://github.com/project-slippi/slippi-js/blob/master/LICENSE)
+A standalone desktop application that parses **Super Smash Bros. Melee** replay files (`.slp`) and presents rich win/loss analytics, stage breakdowns, character preferences, and set tracking — all in a clean, themed UI.
 
-This is the official Project Slippi Javascript SDK. It provides tools for parsing `.slp` files into structured data and can be used to compute stats. There are already many built-in stats that are computed by the library but the data provided can also be used to compute your own stats.
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-## Installation
+---
 
-**With NPM**
+## Features
 
-```bash
-npm install @slippi/slippi-js
-```
+| Feature | Description |
+|---|---|
+| **Total Win Rate** | Overall W–L record across all games |
+| **Ranked / Unranked Split** | Separate stats for ranked and unranked play |
+| **Set Win Rate** | Ranked set W–L (Bo3 tracking via `match_id`) |
+| **Stage Win Rates** | Segmented bar graph + per-stage breakdown with stage thumbnails |
+| **Character Preferences** | What characters opponents play against you, with stock icons |
+| **My Characters** | Your own character usage stats with icons |
+| **Opponent History** | Per-opponent detailed view with all the above stats |
+| **Search & Sort** | Filter opponents by name; sort by Recent, Games, WR%, or Name |
+| **Live Game Tracking** | Monitors replay directory for in-progress games |
+| **Dark / Light Theme** | Toggle via Settings; applies instantly |
+| **Custom Window Icon** | Auto-selects your most-played character, or pick manually |
+| **Export History** | Save your full history as a portable JSON file |
 
-**With Yarn**
+---
 
-```bash
-yarn add @slippi/slippi-js
-```
+## Stack
 
-## Browser vs Node.js
+| Component | Technology |
+|---|---|
+| Language | **Python 3.10+** |
+| GUI | **tkinter** (standard library) |
+| Replay Parsing | **[py-slippi](https://pypi.org/project/py-slippi/)** — pure Python, no Slippi JS SDK required |
+| File Monitoring | **[watchdog](https://pypi.org/project/watchdog/)** |
+| Image Processing | **[Pillow](https://pypi.org/project/Pillow/)** |
+| Packaging | **[PyInstaller](https://pypi.org/project/pyinstaller/)** (for `.exe` distribution) |
 
-This library provides two separate entry points depending on your environment:
+> **Note:** This project is entirely standalone Python. It does **not** depend on the JavaScript Slippi SDK (`@slippi/slippi-js`) or Node.js.
 
-### Default Export: `@slippi/slippi-js` (Browser/Web)
-
-The default export is optimized for browser and web environments. It only accepts binary data as input (buffers, ArrayBuffers, Uint8Arrays, etc.) and **cannot read files from disk**.
-
-```js
-import { SlippiGame } from "@slippi/slippi-js";
-
-// Works with binary data
-const arrayBuffer = await fetch("game.slp").then((r) => r.arrayBuffer());
-const game = new SlippiGame(arrayBuffer);
-
-// Will throw an error in the browser
-const game = new SlippiGame("path/to/file.slp"); // ❌ Error!
-```
-
-> **💡 See the [browser-stream example](./examples/browser-stream/)** for a demo of real-time replay file stream processing in the browser.
-
-### Node.js Export: `@slippi/slippi-js/node`
-
-The Node.js export is designed for server-side and Node.js environments. It can read files directly from disk using file paths **and** also accepts binary data. Additionally, it includes Node.js-specific features like console connections, file writing, and streaming utilities.
-
-```js
-const { SlippiGame } = require("@slippi/slippi-js/node");
-// or with ES modules:
-// import { SlippiGame } from "@slippi/slippi-js/node";
-
-// Works with file paths
-const game = new SlippiGame("path/to/file.slp"); // ✅
-
-// Also works with binary data
-const buffer = fs.readFileSync("path/to/file.slp");
-const game = new SlippiGame(buffer); // ✅
-```
-
-**Additional Node.js-only exports:**
-
-- Console and Dolphin connection utilities for real-time game capture
-- `SlpFileWriter` for creating `.slp` files
-
-**Rule of thumb:** Use `@slippi/slippi-js/node` for Node.js applications and scripts. Use the default `@slippi/slippi-js` for browser/web applications.
-
-> **💡 See the [realtime-file-reads example](./examples/realtime-file-reads/)** for a Node.js script that monitors live games using file system watching.
+---
 
 ## Quick Start
 
-### Writing a Simple Script
-
-1. Create a fresh directory on your disk
-2. Inside this new directory, create a file called `script.js`
-3. Fill the `script.js` file with the following contents:
-
-```js
-const { SlippiGame } = require("@slippi/slippi-js/node");
-
-const game = new SlippiGame("test.slp");
-
-// Get game settings – stage, characters, etc
-const settings = game.getSettings();
-console.log(settings);
-
-// Get metadata - start time, platform played on, etc
-const metadata = game.getMetadata();
-console.log(metadata);
-
-// Get computed stats - openings / kill, conversions, etc
-const stats = game.getStats();
-console.log(stats);
-
-// Get frames – animation state, inputs, etc
-// This is used to compute your own stats or get more frame-specific info (advanced)
-const frames = game.getFrames();
-console.log(frames[0].players); // Print frame when timer starts counting down
-```
-
-4. Copy a .slp file into the directory and call it `test.slp`
-5. Browse to the directory from the command line and run the command: `npm install @slippi/slippi-js`. This should create a `node_modules` directory in the folder.
-6. Run the command: `node script.js`. This will run the script above and will print data about the `test.slp` file
-
-> **💡 Tip:** See the [examples](./examples/) directory for more advanced usage including live file monitoring and browser-based replay processing.
-
-## Examples
-
-The library supports processing replay files in real-time as they're being written. This is useful for live overlays, game monitoring, and analysis tools.
-
-### 🌐 [Browser Stream Example](./examples/browser-stream/)
-
-Demonstrates processing replay files in a web browser with simulated streaming using the low-level `SlpStream` and `SlpParser` APIs. Perfect for understanding how to handle chunked data in browser environments.
-
-**Features:** Interactive web UI, configurable chunk sizes, real-time event log, progress tracking
-
-### 📂 [Realtime File Reads Example](./examples/realtime-file-reads/)
-
-Demonstrates monitoring a directory for live `.slp` file changes and processing them as they're written using the high-level `SlippiGame` API in Node.js.
-
-**Features:** File system watching, live game state (stocks/damage), incremental updates, game end detection
-
-### Reading Live Files
-
-When reading files that are actively being written (e.g., during a live game), use the `processOnTheFly` option:
-
-```javascript
-const { SlippiGame } = require("@slippi/slippi-js/node");
-
-const game = new SlippiGame("path/to/live/file.slp", { processOnTheFly: true });
-```
-
-This allows the `SlippiGame` instance to read partial files and be re-read as new data becomes available. See the [realtime-file-reads example](./examples/realtime-file-reads/) for a complete implementation with file watching.
-
-## Development
-
-### Setup
+### From source
 
 ```bash
-git clone https://github.com/project-slippi/slippi-js
-cd slippi-js
-npm install
+# 1. Clone the repo
+git clone https://github.com/YOUR_USERNAME/slippi-history-advanced.git
+cd slippi-history-advanced
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Run
+python main.py
 ```
 
-### Build
+### First run
+
+1. Enter your **connect code** (e.g. `MOXI#684`).
+2. Click **…** to select your Slippi replay directory (usually `Documents/Slippi`).
+3. Click **Import** — the app will recursively scan all `.slp` files.
+4. Browse opponents, check your overall stats, and leave the app running to track live games.
+
+---
+
+## Building a standalone `.exe`
 
 ```bash
-npm run build
+pip install pyinstaller
+python build.py
 ```
 
-You can also run `npm run watch` to continuously build whenever changes are detected.
+The output is `dist/SlippiHistoryAdvanced.exe` — a single-file executable that can be shared with anyone, no Python install required. The `winrate_data.json` file is created next to the `.exe` on first run.
 
-### Test
+---
 
-```bash
-npm run test
+## Project Structure
+
 ```
+winrate-overlay-advanced/
+├── main.py            # GUI application (tkinter)
+├── slp_parser.py      # .slp replay parser + data model
+├── watcher.py         # Live file-system watcher
+├── build.py           # PyInstaller build script
+├── requirements.txt   # Python dependencies
+├── imgs/
+│   ├── stages/        # Stage thumbnails (battlefield, FD, etc.)
+│   └── stock_icons/   # Character stock icons (24×24 PNGs)
+├── winrate_data.json  # Persisted data (gitignored)
+└── README.md
+```
+
+---
+
+## How It Works
+
+1. **Parsing** — `slp_parser.py` uses [py-slippi](https://pypi.org/project/py-slippi/) to read completed `.slp` files. It also includes a lightweight binary reader that extracts `match_id` and `game_number` directly from the game-start command (these fields are not exposed by py-slippi), enabling ranked set tracking and game-mode detection.
+
+2. **Live Monitoring** — `watcher.py` uses [watchdog](https://pypi.org/project/watchdog/) to recursively monitor the replay directory. When a new `.slp` appears, it reads player info from the raw binary header while the game is still in progress, then parses the full file once writing stops.
+
+3. **Data Model** — Each opponent gets a record with total/ranked/unranked W–L, set W–L, per-stage stats, character usage, and a `last_played` timestamp. An overall record aggregates everything. All data is persisted to `winrate_data.json`.
+
+4. **GUI** — `main.py` builds a tkinter interface with a searchable/sortable opponent list, a scrollable detail panel, segmented bar graphs, and inline stage/character icons loaded via Pillow.
+
+---
+
+## License
+
+MIT
