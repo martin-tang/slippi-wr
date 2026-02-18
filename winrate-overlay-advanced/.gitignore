@@ -1,0 +1,8 @@
+__pycache__/
+winrate_data.json
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+*.exe
