@@ -5,7 +5,6 @@
 3. Press Import and wait for completion.
 4. Voila! Keep this up to see your opponents counter picks & your ongoing w/r
 5. P.S. If you upgrade your PC and don't migrate all your .slp replays, you can keep your history via Export. (But I suggest keeping your .slps if you can afford the HD space.)
-6. P.P.S. There is a miniature
 
 ![Overall Stats Screenshot](https://i.imgur.com/mlcRTex.png)
 
