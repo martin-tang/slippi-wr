@@ -1,6 +1,15 @@
+# How to use:
+
+1. Download the .exe via Right click > Save Link As ... or Download the repo through <> code, download as .zip (only need .exe, rest can be deleted.)
+2. Use the file selector to select your Slippi replay folder. You can do the top level folder or an individual month. By default it's at C:/Users/YOURUSERNAME/Documents/Slippi
+3. Press Import and wait for completion.
+4. Voila! Keep this up to see your opponents counter picks & your ongoing w/r
+5. P.S. If you upgrade your PC and don't migrate all your .slp replays, you can keep your history via Export. (But I suggest keeping your .slps if you can afford the HD space.)
+
+
 # Slippi History Advanced
 
-A standalone desktop application that parses **Super Smash Bros. Melee** replay files (`.slp`) and presents rich win/loss analytics, stage breakdowns, character preferences, and set tracking — all in a clean, themed UI.
+A Slippi companion app that parses **Super Smash Bros. Melee** replay files (`.slp`) and presents rich win/loss analytics, stage breakdowns, character preferences, and set tracking — all in a clean, themed UI.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -41,7 +50,7 @@ A standalone desktop application that parses **Super Smash Bros. Melee** replay 
 
 ---
 
-## Quick Start
+## For developers
 
 ### From source
 
@@ -78,25 +87,6 @@ The output is `dist/SlippiHistoryAdvanced.exe` — a single-file executable that
 
 ---
 
-## Repo Structure
-
-```
-slippi-wr/
-├── winrate-overlay-advanced/   # ← the main application
-│   ├── main.py                 # GUI application (tkinter)
-│   ├── slp_parser.py           # .slp replay parser + data model
-│   ├── watcher.py              # Live file-system watcher
-│   ├── build.py                # PyInstaller build script
-│   ├── requirements.txt        # Python dependencies
-│   └── imgs/
-│       ├── stages/             # Stage thumbnails
-│       └── stock_icons/        # Character stock icons
-├── winrate-overlay/            # Earlier prototype (simpler)
-├── slippi-sdk/                 # Original JS Slippi SDK (reference only)
-└── README.md
-```
-
----
 
 ## How It Works
 
