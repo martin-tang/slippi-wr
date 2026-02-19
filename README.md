@@ -37,7 +37,7 @@ A standalone desktop application that parses **Super Smash Bros. Melee** replay 
 | Image Processing | **[Pillow](https://pypi.org/project/Pillow/)** |
 | Packaging | **[PyInstaller](https://pypi.org/project/pyinstaller/)** (for `.exe` distribution) |
 
-> **Note:** This project is entirely standalone Python. It does **not** depend on the JavaScript Slippi SDK (`@slippi/slippi-js`) or Node.js.
+> **Note:** This project is entirely standalone Python. It does **not** depend on the JavaScript Slippi SDK (`@slippi/slippi-js`) or Node.js. The original SDK source is kept in `slippi-sdk/` for reference only.
 
 ---
 
@@ -47,8 +47,8 @@ A standalone desktop application that parses **Super Smash Bros. Melee** replay 
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/YOUR_USERNAME/slippi-history-advanced.git
-cd slippi-history-advanced
+git clone https://github.com/martin-tang/slippi-wr.git
+cd slippi-wr/winrate-overlay-advanced
 
 # 2. Install dependencies
 pip install -r requirements.txt
@@ -69,6 +69,7 @@ python main.py
 ## Building a standalone `.exe`
 
 ```bash
+cd winrate-overlay-advanced
 pip install pyinstaller
 python build.py
 ```
@@ -77,19 +78,21 @@ The output is `dist/SlippiHistoryAdvanced.exe` — a single-file executable that
 
 ---
 
-## Project Structure
+## Repo Structure
 
 ```
-winrate-overlay-advanced/
-├── main.py            # GUI application (tkinter)
-├── slp_parser.py      # .slp replay parser + data model
-├── watcher.py         # Live file-system watcher
-├── build.py           # PyInstaller build script
-├── requirements.txt   # Python dependencies
-├── imgs/
-│   ├── stages/        # Stage thumbnails (battlefield, FD, etc.)
-│   └── stock_icons/   # Character stock icons (24×24 PNGs)
-├── winrate_data.json  # Persisted data (gitignored)
+slippi-wr/
+├── winrate-overlay-advanced/   # ← the main application
+│   ├── main.py                 # GUI application (tkinter)
+│   ├── slp_parser.py           # .slp replay parser + data model
+│   ├── watcher.py              # Live file-system watcher
+│   ├── build.py                # PyInstaller build script
+│   ├── requirements.txt        # Python dependencies
+│   └── imgs/
+│       ├── stages/             # Stage thumbnails
+│       └── stock_icons/        # Character stock icons
+├── winrate-overlay/            # Earlier prototype (simpler)
+├── slippi-sdk/                 # Original JS Slippi SDK (reference only)
 └── README.md
 ```
 
