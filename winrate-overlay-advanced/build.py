@@ -18,8 +18,9 @@ def main():
         "--onefile",
         "--windowed",
         "--name=SlippiHistoryAdvanced",
-        "--add-data=imgs;imgs",          # bundle the imgs folder
-        "--add-data=slp_parser.py;.",     # bundle helper modules
+        "--icon=imgs/app_icon.ico",
+        "--add-data=imgs;imgs",
+        "--add-data=slp_parser.py;.",
         "--add-data=watcher.py;.",
         "main.py",
     ]
