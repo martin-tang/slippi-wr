@@ -1,1 +1,7 @@
-*.png binary
+# Treat images as binary so Git never does CRLF/LF conversion (prevents corruption on pull)
+*.png binary -text
+*.ico binary -text
+*.jpg binary -text
+*.jpeg binary -text
+*.gif binary -text
+*.webp binary -text
