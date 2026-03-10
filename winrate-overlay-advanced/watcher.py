@@ -34,7 +34,7 @@ class SlpWatcher:
         The user's connect code (e.g. ``"MOXI#684"``), matched case-insensitively.
     on_game_start : callable(opponent_name, game_mode, opp_char, my_char)
         Called when a new live game is detected.
-    on_game_end : callable(opponent_name, i_won, game_mode, stage_id, opp_char_id, my_char_id, match_id, game_number)
+    on_game_end : callable(opponent_name, i_won, game_mode, stage_id, opp_char_id, my_char_id, match_id, game_number, timestamp)
         Called when a game finishes with all metadata.
     on_status : callable(msg)
         Called to report status text.
@@ -199,10 +199,14 @@ class SlpWatcher:
             match_id = result.get("match_id", match_id)
             game_number = result.get("game_number", game_number)
 
+        timestamp = result.get("timestamp", "") if result else ""
+        if not timestamp:
+            timestamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+
         self.on_game_end(
             opponent, i_won, game_mode, stage_id,
             opp_char or 0, my_char or 0,
-            match_id, game_number,
+            match_id, game_number, timestamp,
         )
         self.on_status("Watching for new games...")
 

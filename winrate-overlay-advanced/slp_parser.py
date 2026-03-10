@@ -9,6 +9,7 @@ parser for reading player info + match metadata from live (in-progress) files.
 """
 
 import os
+import re
 import time
 import unicodedata
 from typing import Optional
@@ -347,18 +348,22 @@ def parse_completed_game(filepath: str) -> Optional[dict]:
     match_id = match_meta["match_id"] if match_meta else ""
     game_number = match_meta["game_number"] if match_meta else 0
 
-    # Timestamp from metadata (ISO string) or file modification time
-    timestamp = ""
-    if game.metadata and game.metadata.date:
-        timestamp = game.metadata.date.isoformat()
-    else:
-        try:
-            timestamp = time.strftime(
-                "%Y-%m-%dT%H:%M:%S",
-                time.gmtime(os.path.getmtime(filepath)),
-            )
-        except OSError:
-            pass
+    # Timestamp priority: filename (local time) > metadata > file mtime.
+    # Filename timestamps come from the local Slippi client and are reliable.
+    # game.metadata.date can have wrong dates if the console clock is off.
+    timestamp = _timestamp_from_filename(filepath)
+    if not timestamp:
+        if game.metadata and game.metadata.date:
+            timestamp = _normalize_timestamp(game.metadata.date.isoformat())
+        else:
+            try:
+                timestamp = time.strftime(
+                    "%Y-%m-%dT%H:%M:%S",
+                    time.localtime(os.path.getmtime(filepath)),
+                )
+            except OSError:
+                pass
+    timestamp = _clamp_future_timestamp(timestamp, filepath)
 
     return {
         "players": players,
@@ -418,9 +423,12 @@ def _record_game(
         records[opp_name] = _empty_opponent_record()
     rec = records[opp_name]
 
-    # Update last_played if this game is newer
-    if timestamp and timestamp > rec.get("last_played", ""):
-        rec["last_played"] = timestamp
+    # Update last_played if this game is newer (normalize to strip timezone)
+    if timestamp:
+        clean_ts = _normalize_timestamp(timestamp)
+        existing = _normalize_timestamp(rec.get("last_played", ""))
+        if clean_ts > existing:
+            rec["last_played"] = clean_ts
 
     s_name = stage_name(stage_id)
     opp_c = char_name(opp_char_id)
@@ -514,31 +522,19 @@ def _compute_sets(
         # Incomplete sets (e.g. disconnect) are not counted
 
 
-def build_advanced_winrate(
-    replay_dir: str,
-    my_code: str,
+def _process_slp_files(
+    slp_files: list[str],
+    my_code_lower: str,
+    records: dict,
+    overall: dict,
     progress_callback=None,
     save_callback=None,
-) -> tuple[dict, dict]:
-    """Scan replay_dir recursively and build advanced winrate data.
+) -> dict[str, list[dict]]:
+    """Parse a list of .slp files and record results into *records*/*overall*.
 
-    Returns ``(records, overall)`` where:
-    - records: ``{ "Opponent (CODE)": { per-opponent data } }``
-    - overall: ``{ aggregate data across all opponents }``
+    Returns a dict of ranked sets (match_id -> game list) for set computation.
     """
-    my_code_lower = my_code.strip().lower()
-    records: dict[str, dict] = {}
-    overall = _empty_overall_record()
-
-    # Collect ranked games for set analysis
     ranked_sets: dict[str, list[dict]] = {}
-
-    # Recursively find all .slp files
-    slp_files: list[str] = []
-    for dirpath, _dirnames, filenames in os.walk(replay_dir):
-        for fname in filenames:
-            if fname.lower().endswith(".slp"):
-                slp_files.append(os.path.join(dirpath, fname))
     total = len(slp_files)
 
     for idx, fpath in enumerate(slp_files):
@@ -548,7 +544,6 @@ def build_advanced_winrate(
         if result is None:
             continue
 
-        # Identify self vs opponent
         my_port = None
         opp_port = None
         for port, pid in result["players"].items():
@@ -578,22 +573,154 @@ def build_advanced_winrate(
             timestamp=result.get("timestamp", ""),
         )
 
-        # Accumulate ranked games for set tracking
         if result["game_mode"] == "ranked" and result["match_id"]:
             mid = result["match_id"]
             if mid not in ranked_sets:
                 ranked_sets[mid] = []
             ranked_sets[mid].append(result)
 
-        # Periodic save
         if save_callback and (idx + 1) % 100 == 0:
             save_callback(records, overall)
 
-    # Compute set W/L from grouped ranked games
+    return ranked_sets
+
+
+def build_advanced_winrate(
+    replay_dir: str,
+    my_code: str,
+    progress_callback=None,
+    save_callback=None,
+) -> tuple[dict, dict]:
+    """Scan replay_dir recursively and build advanced winrate data.
+
+    Returns ``(records, overall)`` where:
+    - records: ``{ "Opponent (CODE)": { per-opponent data } }``
+    - overall: ``{ aggregate data across all opponents }``
+    """
+    my_code_lower = my_code.strip().lower()
+    records: dict[str, dict] = {}
+    overall = _empty_overall_record()
+
+    slp_files: list[tuple[str, str]] = []
+    for dirpath, _dirnames, filenames in os.walk(replay_dir):
+        for fname in filenames:
+            if fname.lower().endswith(".slp"):
+                ts = _extract_slp_timestamp(fname)
+                slp_files.append((os.path.join(dirpath, fname), ts))
+
+    slp_files.sort(key=lambda x: x[1])
+    paths = [fpath for fpath, _ts in slp_files]
+
+    ranked_sets = _process_slp_files(
+        paths, my_code_lower, records, overall,
+        progress_callback, save_callback,
+    )
     _compute_sets(ranked_sets, records, overall, my_code_lower)
 
-    # Final save
     if save_callback:
         save_callback(records, overall)
 
     return records, overall
+
+
+_SLP_TS_RE = re.compile(r"(\d{8}T\d{6})")
+
+
+def _extract_slp_timestamp(filename: str) -> str:
+    """Extract the compact timestamp ``YYYYMMDDTHHMMSS`` from a .slp filename."""
+    m = _SLP_TS_RE.search(filename)
+    return m.group(1) if m else ""
+
+
+def _timestamp_from_filename(filepath: str) -> str:
+    """Convert a .slp filename timestamp to ISO format (local time).
+
+    Slippi filenames: ``Game_20250125T050545.slp`` → ``"2025-01-25T05:05:45"``
+    """
+    fname = os.path.basename(filepath)
+    m = _SLP_TS_RE.search(fname)
+    if not m:
+        return ""
+    c = m.group(1)
+    return f"{c[:4]}-{c[4:6]}-{c[6:8]}T{c[9:11]}:{c[11:13]}:{c[13:15]}"
+
+
+def _normalize_timestamp(ts: str) -> str:
+    """Strip timezone suffix (e.g. ``+00:00``) for consistent string comparison."""
+    return ts[:19] if ts else ""
+
+
+def _clamp_future_timestamp(ts: str, filepath: str = "") -> str:
+    """If *ts* is in the future, fall back to file mtime or current local time."""
+    if not ts:
+        return ""
+    now = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+    clean = _normalize_timestamp(ts)
+    if clean <= now:
+        return clean
+    # Future timestamp — try file modification time
+    if filepath:
+        try:
+            mtime_ts = time.strftime(
+                "%Y-%m-%dT%H:%M:%S",
+                time.localtime(os.path.getmtime(filepath)),
+            )
+            if mtime_ts <= now:
+                return mtime_ts
+        except OSError:
+            pass
+    return now
+
+
+def iso_to_compact(iso_str: str) -> str:
+    """Convert an ISO timestamp to compact form for filename comparison.
+
+    ``"2024-12-23T07:33:34+00:00"`` → ``"20241223T073334"``
+    """
+    base = iso_str[:19]
+    return base.replace("-", "").replace(":", "")
+
+
+def update_advanced_winrate(
+    replay_dir: str,
+    my_code: str,
+    records: dict,
+    overall: dict,
+    cutoff_iso: str,
+    progress_callback=None,
+    save_callback=None,
+) -> tuple[dict, dict, int]:
+    """Incrementally import .slp files newer than *cutoff_iso*.
+
+    *cutoff_iso* is an ISO-format timestamp (e.g. from ``last_played``).
+    Only files whose filename timestamp is strictly after the cutoff are
+    processed.  Mutates *records* and *overall* in place and returns
+    ``(records, overall, new_files_count)``.
+    """
+    my_code_lower = my_code.strip().lower()
+    cutoff_compact = iso_to_compact(cutoff_iso) if cutoff_iso else ""
+
+    slp_files: list[tuple[str, str]] = []
+    for dirpath, _dirnames, filenames in os.walk(replay_dir):
+        for fname in filenames:
+            if not fname.lower().endswith(".slp"):
+                continue
+            ts = _extract_slp_timestamp(fname)
+            if not ts:
+                continue
+            if ts > cutoff_compact:
+                slp_files.append((os.path.join(dirpath, fname), ts))
+
+    slp_files.sort(key=lambda x: x[1])
+    paths = [f for f, _ts in slp_files]
+
+    ranked_sets = _process_slp_files(
+        paths, my_code_lower, records, overall,
+        progress_callback, save_callback,
+    )
+    _compute_sets(ranked_sets, records, overall, my_code_lower)
+
+    if save_callback:
+        save_callback(records, overall)
+
+    return records, overall, len(paths)

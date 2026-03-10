@@ -24,6 +24,7 @@ from PIL import Image, ImageTk
 
 from slp_parser import (
     build_advanced_winrate,
+    update_advanced_winrate,
     char_name,
     stage_name,
     _empty_opponent_record,
@@ -425,6 +426,7 @@ class SlippiHistoryApp:
         self.records: dict[str, dict] = saved.get("records", {})
         self.overall: dict = saved.get("overall", _empty_overall_record())
         self.settings: dict = saved.get("settings", {"theme": "dark", "favicon": "auto"})
+        self.last_import_time: float = saved.get("last_import_time", 0.0)
 
         # Apply saved theme BEFORE building any widgets
         _apply_theme_colors(self.settings.get("theme", "dark"))
@@ -488,6 +490,13 @@ class SlippiHistoryApp:
             activebackground="#00b894", padx=10,
         )
         self.import_btn.pack(side="left")
+
+        self.update_btn = tk.Button(
+            top, text="Update", command=self._update_replays,
+            bg=BG_CARD, fg=FG, relief="flat", font=("Segoe UI", 9, "bold"),
+            activebackground=ACCENT, activeforeground="#000", padx=10,
+        )
+        self.update_btn.pack(side="left", padx=(4, 0))
 
         # ---- Status ----
         self.status_var = tk.StringVar(value="Status: Idle")
@@ -563,6 +572,12 @@ class SlippiHistoryApp:
 
         tk.Button(
             btn_frame, text="Export History", command=self._export_history,
+            bg=BG_ENTRY, fg=FG, relief="flat", font=("Segoe UI", 9),
+            activebackground=ACCENT, activeforeground="#000",
+        ).pack(fill="x", pady=(0, 3))
+
+        tk.Button(
+            btn_frame, text="Import JSON", command=self._import_json,
             bg=BG_ENTRY, fg=FG, relief="flat", font=("Segoe UI", 9),
             activebackground=ACCENT, activeforeground="#000",
         ).pack(fill="x", pady=(0, 3))
@@ -873,6 +888,7 @@ class SlippiHistoryApp:
 
         self.my_code = code
         self.import_btn.config(state="disabled")
+        self.update_btn.config(state="disabled")
         self.browse_btn.config(state="disabled")
         self.status_var.set("Status: Importing replays\u2026")
 
@@ -901,7 +917,9 @@ class SlippiHistoryApp:
     def _on_import_done(self, records: dict, overall: dict):
         self.records = records
         self.overall = overall
+        self.last_import_time = _time_mod.time()
         self.import_btn.config(state="normal")
+        self.update_btn.config(state="normal")
         self.browse_btn.config(state="normal")
 
         total_opponents = len(records)
@@ -932,12 +950,145 @@ class SlippiHistoryApp:
                 "my_code": self.my_code,
                 "records": self.records,
                 "overall": self.overall,
+                "last_import_time": self.last_import_time,
             }
             with open(path, "w") as f:
                 json.dump(data, f, indent=2)
             self.status_var.set(f"Status: History exported to {os.path.basename(path)}")
         except Exception as exc:
             messagebox.showerror("Export Error", f"Could not export:\n{exc}")
+
+    def _import_json(self):
+        """Load a previously exported .json file and replace current data."""
+        path = filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            title="Import History JSON",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except Exception as exc:
+            messagebox.showerror("Import Error", f"Could not read JSON:\n{exc}")
+            return
+
+        if "records" not in data or "overall" not in data:
+            messagebox.showerror(
+                "Invalid JSON",
+                "The file must contain 'records' and 'overall' keys.\n"
+                "Use a file created by Export History.",
+            )
+            return
+
+        self.records = data["records"]
+        self.overall = data["overall"]
+        if data.get("replay_dir"):
+            self.replay_dir = data["replay_dir"]
+            self.dir_var.set(self.replay_dir)
+        if data.get("my_code"):
+            self.my_code = data["my_code"]
+            self.code_var.set(self.my_code)
+
+        self._persist()
+        self._set_favicon()
+        self._refresh_opponent_list()
+        self._show_overall()
+
+        tw, tl = self.overall.get("total", [0, 0])
+        self.status_var.set(
+            f"Status: Imported JSON \u2014 {tw + tl} games vs "
+            f"{len(self.records)} opponents."
+        )
+
+        if self.replay_dir and self.my_code:
+            self._start_watcher()
+
+    def _newest_last_played(self) -> str:
+        """Return the newest ``last_played`` ISO timestamp across all records."""
+        newest = ""
+        for rec in self.records.values():
+            lp = rec.get("last_played", "")[:19]
+            if lp > newest:
+                newest = lp
+        return newest
+
+    def _update_replays(self):
+        """Incrementally import only .slp files newer than the last recorded game."""
+        code = self.code_var.get().strip()
+        if not code:
+            messagebox.showwarning("Missing Code",
+                                   "Enter your connect code first (e.g. MOXI#684).")
+            return
+        if not self.replay_dir or not os.path.isdir(self.replay_dir):
+            messagebox.showwarning("Missing Directory",
+                                   "Select a valid replay directory first.")
+            return
+
+        cutoff = self._newest_last_played()
+        if not cutoff:
+            messagebox.showinfo(
+                "No Previous Data",
+                "No game history found. Use 'Import' for a full scan first,\n"
+                "or 'Import JSON' to load an existing history file.",
+            )
+            return
+
+        self.my_code = code
+        self.import_btn.config(state="disabled")
+        self.update_btn.config(state="disabled")
+        self.browse_btn.config(state="disabled")
+        self.status_var.set("Status: Scanning for new replays\u2026")
+
+        def run():
+            def progress(cur, total):
+                self.root.after(0, lambda: self.status_var.set(
+                    f"Status: Updating\u2026 {cur}/{total} new files"
+                ))
+
+            def save(records, overall):
+                def do_save():
+                    self.records = records
+                    self.overall = overall
+                    self._persist()
+                self.root.after(0, do_save)
+
+            _records, _overall, new_count = update_advanced_winrate(
+                self.replay_dir, code,
+                self.records, self.overall, cutoff,
+                progress_callback=progress,
+                save_callback=save,
+            )
+            self.root.after(0, lambda: self._on_update_done(
+                _records, _overall, new_count
+            ))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_update_done(self, records: dict, overall: dict, new_count: int):
+        self.records = records
+        self.overall = overall
+        self.import_btn.config(state="normal")
+        self.update_btn.config(state="normal")
+        self.browse_btn.config(state="normal")
+
+        tw, tl = overall.get("total", [0, 0])
+        if new_count == 0:
+            self.status_var.set("Status: Already up to date \u2014 no new replays found.")
+        else:
+            self.status_var.set(
+                f"Status: Updated \u2014 {new_count} new files processed. "
+                f"Total: {tw + tl} games."
+            )
+
+        self._persist()
+        self._set_favicon()
+        self._refresh_opponent_list()
+        if self.current_opponent:
+            self._show_opponent(self.current_opponent)
+        else:
+            self._show_overall()
+        self._start_watcher()
 
     def _open_settings(self):
         SettingsDialog(self.root, self)
@@ -1009,13 +1160,16 @@ class SlippiHistoryApp:
     def _on_game_end(self, opponent_name: str, i_won: bool | None,
                      game_mode: str, stage_id: int,
                      opp_char_id: int, my_char_id: int,
-                     match_id: str, game_number: int):
+                     match_id: str, game_number: int,
+                     timestamp: str = ""):
         def update():
-            now = _time_mod.strftime("%Y-%m-%dT%H:%M:%S", _time_mod.gmtime())
+            ts = timestamp or _time_mod.strftime(
+                "%Y-%m-%dT%H:%M:%S", _time_mod.localtime()
+            )
             _record_game(
                 self.records, self.overall, opponent_name, i_won,
                 game_mode, stage_id, opp_char_id, my_char_id,
-                timestamp=now,
+                timestamp=ts,
             )
 
             if game_mode == "ranked" and match_id:
@@ -1068,6 +1222,7 @@ class SlippiHistoryApp:
             "records": self.records,
             "overall": self.overall,
             "settings": self.settings,
+            "last_import_time": self.last_import_time,
         })
 
     def on_close(self):
